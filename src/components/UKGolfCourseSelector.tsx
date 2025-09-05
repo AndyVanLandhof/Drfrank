@@ -38,7 +38,7 @@ export interface UKGolfCourseSelectorProps {
   onCourseDownloaded: (courseData: any) => void;
 }
 
-const API_BASE_URL = 'https://api.bthree.uk/golf/v1';
+const API_BASE_URL = '/api/uk-golf';
 
 export default function UKGolfCourseSelector({ onCourseDownloaded }: UKGolfCourseSelectorProps) {
   const [clubs, setClubs] = useState<Club[]>([]);

@@ -1,7 +1,13 @@
 {
   "framework": "vite",
   "buildCommand": "npm run build",
-  "outputDirectory": "build"
+  "outputDirectory": "build",
+  "rewrites": [
+    {
+      "source": "/api/uk-golf/:path*",
+      "destination": "https://api.bthree.uk/golf/v1/:path*"
+    }
+  ]
 }
 
 

@@ -61,5 +61,12 @@
     server: {
       port: 3000,
       open: true,
+      proxy: {
+        '/api/uk-golf': {
+          target: 'https://api.bthree.uk/golf/v1',
+          changeOrigin: true,
+          rewrite: (p) => p.replace(/^\/api\/uk-golf/, ''),
+        },
+      },
     },
   });

@@ -3,10 +3,7 @@
   "buildCommand": "npm run build",
   "outputDirectory": "build",
   "rewrites": [
-    {
-      "source": "/api/uk-golf/:path*",
-      "destination": "https://api.bthree.uk/golf/v1/:path*"
-    }
+    { "source": "/api/uk-golf/(.*)", "destination": "/api/uk-golf/$1" }
   ]
 }
 

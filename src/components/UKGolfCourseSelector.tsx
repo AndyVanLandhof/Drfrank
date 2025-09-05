@@ -141,9 +141,44 @@ export default function UKGolfCourseSelector({ onCourseDownloaded }: UKGolfCours
     await fetchCourses(club.id);
   };
 
-  const handleSearch = () => {
-    // Client-side filtering; initial fetch already loaded all clubs
-    // Nothing to do here since filtering is applied in render
+  const handleSearch = async () => {
+    const term = searchTerm.trim().toLowerCase();
+    if (!term) {
+      // Reset to initial page
+      await fetchClubs();
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    try {
+      const pageSize = 500;
+      const maxPages = 20; // safety cap
+      const aggregated: Club[] = [];
+      for (let page = 0; page < maxPages; page++) {
+        const offset = page * pageSize;
+        const url = `${API_BASE_URL}/clubs?offset=${offset}&limit=${pageSize}`;
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`API Error: ${res.status}`);
+        const data = await res.json();
+        const items: Club[] = (data && (data.items || [])) as Club[];
+        if (!items || items.length === 0) break;
+        const filtered = items.filter((c) =>
+          [c.name, c.postcode, c.address1, c.address2, c.address3]
+            .filter(Boolean)
+            .join(' ')
+            .toLowerCase()
+            .includes(term)
+        );
+        aggregated.push(...filtered);
+        if (aggregated.length >= 50) break; // enough to display
+      }
+      setClubs(aggregated);
+    } catch (err: any) {
+      setError(`Failed to search clubs: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {

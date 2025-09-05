@@ -1,0 +1,12 @@
+{
+  "name": "Dr. Frank Golf",
+  "short_name": "DrFrank",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "hsl(145, 65%, 20%)",
+  "description": "Golf scoring app with classic Augusta-inspired design.",
+  "icons": []
+}
+
+

@@ -4,7 +4,10 @@ import { Search, MapPin, Download } from 'lucide-react';
 type Club = {
   id: string | number;
   name: string;
-  location?: string;
+  postcode?: string;
+  address1?: string;
+  address2?: string;
+  address3?: string;
 };
 
 type Course = {
@@ -45,15 +48,15 @@ export default function UKGolfCourseSelector({ onCourseDownloaded }: UKGolfCours
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState<string>('');
 
-  const fetchClubs = async (search: string = '') => {
+  const fetchClubs = async () => {
     setLoading(true);
     setError(null);
     try {
-      const url = search ? `${API_BASE_URL}/clubs?search=${encodeURIComponent(search)}` : `${API_BASE_URL}/clubs`;
-      const response = await fetch(url);
+      const response = await fetch(`${API_BASE_URL}/clubs`);
       if (!response.ok) throw new Error(`API Error: ${response.status}`);
       const data = await response.json();
-      setClubs((data && (data.clubs || data)) || []);
+      const items = (data && (data.items || [])) as Club[];
+      setClubs(items);
     } catch (err: any) {
       setError(`Failed to load clubs: ${err.message}`);
     } finally {
@@ -65,10 +68,12 @@ export default function UKGolfCourseSelector({ onCourseDownloaded }: UKGolfCours
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch(`${API_BASE_URL}/courses?club_id=${clubId}`);
+      // API exposes courses under nested club path
+      const response = await fetch(`${API_BASE_URL}/clubs/${clubId}/courses`);
       if (!response.ok) throw new Error(`API Error: ${response.status}`);
       const data = await response.json();
-      setCourses((data && (data.courses || data)) || []);
+      const items = (data && (data.items || [])) as Course[];
+      setCourses(items);
     } catch (err: any) {
       setError(`Failed to load courses: ${err.message}`);
     } finally {
@@ -137,7 +142,8 @@ export default function UKGolfCourseSelector({ onCourseDownloaded }: UKGolfCours
   };
 
   const handleSearch = () => {
-    fetchClubs(searchTerm);
+    // Client-side filtering; initial fetch already loaded all clubs
+    // Nothing to do here since filtering is applied in render
   };
 
   useEffect(() => {
@@ -187,24 +193,42 @@ export default function UKGolfCourseSelector({ onCourseDownloaded }: UKGolfCours
 
       {clubs.length > 0 && !selectedClub && (
         <div className="mb-6">
-          <h3 className="text-lg font-semibold text-gray-800 mb-3">Found {clubs.length} Golf Clubs</h3>
-          <div className="grid gap-3 max-h-96 overflow-y-auto">
-            {clubs.map((club) => (
-              <div
-                key={String(club.id)}
-                onClick={() => handleClubSelect(club)}
-                className="p-4 border border-gray-200 rounded-lg cursor-pointer hover:border-green-300 hover:bg-green-50 transition-colors"
-              >
-                <h4 className="font-semibold text-gray-800">{club.name}</h4>
-                {club.location && (
-                  <div className="flex items-center gap-1 text-gray-600 text-sm mt-1">
-                    <MapPin className="h-3 w-3" />
-                    <span>{club.location}</span>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
+          {(() => {
+            const term = searchTerm.trim().toLowerCase();
+            const filtered = term
+              ? clubs.filter((c) => {
+                  const hay = [c.name, c.postcode, c.address1, c.address2, c.address3]
+                    .filter(Boolean)
+                    .join(' ')
+                    .toLowerCase();
+                  return hay.includes(term);
+                })
+              : clubs;
+            return (
+              <>
+                <h3 className="text-lg font-semibold text-gray-800 mb-3">Found {filtered.length} Golf Clubs</h3>
+                <div className="grid gap-3 max-h-96 overflow-y-auto">
+                  {filtered.map((club) => (
+                    <div
+                      key={String(club.id)}
+                      onClick={() => handleClubSelect(club)}
+                      className="p-4 border border-gray-200 rounded-lg cursor-pointer hover:border-green-300 hover:bg-green-50 transition-colors"
+                    >
+                      <h4 className="font-semibold text-gray-800">{club.name}</h4>
+                      {(
+                        club.postcode || club.address1 || club.address2 || club.address3
+                      ) && (
+                        <div className="flex items-center gap-1 text-gray-600 text-sm mt-1">
+                          <MapPin className="h-3 w-3" />
+                          <span>{[club.address1, club.address2, club.address3, club.postcode].filter(Boolean).join(', ')}</span>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </>
+            );
+          })()}
         </div>
       )}
 

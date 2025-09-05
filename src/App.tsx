@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { LandingPage } from "./components/LandingPage";
 import { CoursePage } from "./components/CoursePage";
 import { PlayerSetup } from "./components/PlayerSetup";
@@ -18,7 +19,6 @@ export interface GameResults {
 
 export default function App() {
   const [currentPage, setCurrentPage] = useState<"landing" | "course" | "playerSetup" | "handicapSummary" | "teams" | "format" | "game" | "results">("landing");
-  
   const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
   const [selectedTeeBox, setSelectedTeeBox] = useState<TeeBox | null>(null);
   const [players, setPlayers] = useState<Player[]>([]);
@@ -26,10 +26,18 @@ export default function App() {
   const [selectedFormats, setSelectedFormats] = useState<string[]>([]);
   const [gameResults, setGameResults] = useState<GameResults | null>(null);
 
-  if (currentPage === "course") {
-    return (
-      <div className="min-h-screen bg-background" style={{ backgroundColor: 'hsl(145, 65%, 20%)' }}>
-        <CoursePage 
+  const shouldReduceMotion = useReducedMotion();
+  const variants = {
+    initial: { opacity: 0, y: 8 },
+    animate: { opacity: 1, y: 0 },
+    exit: { opacity: 0, y: -8 },
+  };
+
+  let page: JSX.Element;
+  switch (currentPage) {
+    case "course":
+      page = (
+        <CoursePage
           onBack={() => setCurrentPage("landing")}
           onContinue={(course, teeBox) => {
             setSelectedCourse(course);
@@ -37,14 +45,11 @@ export default function App() {
             setCurrentPage("playerSetup");
           }}
         />
-      </div>
-    );
-  }
-
-  if (currentPage === "playerSetup") {
-    return (
-      <div className="min-h-screen bg-background" style={{ backgroundColor: 'hsl(145, 65%, 20%)' }}>
-        <PlayerSetup 
+      );
+      break;
+    case "playerSetup":
+      page = (
+        <PlayerSetup
           selectedTeeBox={selectedTeeBox!}
           onBack={() => setCurrentPage("course")}
           onContinue={(playerData) => {
@@ -52,20 +57,16 @@ export default function App() {
             setCurrentPage("handicapSummary");
           }}
         />
-      </div>
-    );
-  }
-
-  if (currentPage === "handicapSummary") {
-    return (
-      <div className="min-h-screen bg-background" style={{ backgroundColor: 'hsl(145, 65%, 20%)' }}>
-        <HandicapSummary 
+      );
+      break;
+    case "handicapSummary":
+      page = (
+        <HandicapSummary
           players={players}
           selectedTeeBox={selectedTeeBox!}
           selectedCourse={selectedCourse!}
           onBack={() => setCurrentPage("playerSetup")}
           onContinue={() => {
-            // Only show teams page if there are 4 players (for team formats)
             if (players.length === 4) {
               setCurrentPage("teams");
             } else {
@@ -73,14 +74,11 @@ export default function App() {
             }
           }}
         />
-      </div>
-    );
-  }
-
-  if (currentPage === "teams") {
-    return (
-      <div className="min-h-screen bg-background" style={{ backgroundColor: 'hsl(145, 65%, 20%)' }}>
-        <TeamsPage 
+      );
+      break;
+    case "teams":
+      page = (
+        <TeamsPage
           players={players}
           selectedCourse={selectedCourse}
           onBack={() => setCurrentPage("handicapSummary")}
@@ -89,17 +87,13 @@ export default function App() {
             setCurrentPage("format");
           }}
         />
-      </div>
-    );
-  }
-
-  if (currentPage === "format") {
-    return (
-      <div className="min-h-screen bg-background" style={{ backgroundColor: 'hsl(145, 65%, 20%)' }}>
-        <FormatPage 
+      );
+      break;
+    case "format":
+      page = (
+        <FormatPage
           players={players}
           onBack={() => {
-            // Go back to teams page if we have 4 players, otherwise handicap summary
             if (players.length === 4) {
               setCurrentPage("teams");
             } else {
@@ -111,14 +105,11 @@ export default function App() {
             setCurrentPage("game");
           }}
         />
-      </div>
-    );
-  }
-
-  if (currentPage === "game") {
-    return (
-      <div className="min-h-screen bg-background" style={{ backgroundColor: 'hsl(145, 65%, 20%)' }}>
-        <GameScreen 
+      );
+      break;
+    case "game":
+      page = (
+        <GameScreen
           players={players}
           selectedFormats={selectedFormats}
           teams={teams}
@@ -129,14 +120,11 @@ export default function App() {
             setCurrentPage("results");
           }}
         />
-      </div>
-    );
-  }
-
-  if (currentPage === "results") {
-    return (
-      <div className="min-h-screen bg-background" style={{ backgroundColor: 'hsl(145, 65%, 20%)' }}>
-        <ResultsPage 
+      );
+      break;
+    case "results":
+      page = (
+        <ResultsPage
           players={players}
           selectedFormats={selectedFormats}
           gameResults={gameResults!}
@@ -150,13 +138,24 @@ export default function App() {
             setGameResults(null);
           }}
         />
-      </div>
-    );
+      );
+      break;
+    default:
+      page = <LandingPage onPlayGolf={() => setCurrentPage("course")} />;
   }
 
   return (
     <div className="min-h-screen bg-background" style={{ backgroundColor: 'hsl(145, 65%, 20%)' }}>
-      <LandingPage onPlayGolf={() => setCurrentPage("course")} />
+      <AnimatePresence mode="wait" initial={!shouldReduceMotion}>
+        <motion.div
+          key={currentPage}
+          {...(shouldReduceMotion
+            ? {}
+            : { initial: "initial", animate: "animate", exit: "exit", variants, transition: { duration: 0.18, ease: "easeOut" } })}
+        >
+          {page}
+        </motion.div>
+      </AnimatePresence>
     </div>
   );
 }

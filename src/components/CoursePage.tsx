@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Card } from './ui/card';
 import { Search, MapPin } from 'lucide-react';
 import { CourseService } from '../services/courseService';
 import { Course, CourseSearchResult, TeeBox } from '../types/course';
+import UKGolfCourseSelector from './UKGolfCourseSelector';
 
 interface CoursePageProps {
 	onBack: () => void;
@@ -19,6 +20,7 @@ export function CoursePage({ onBack, onContinue }: CoursePageProps) {
 	const [selectedTeeBox, setSelectedTeeBox] = useState<TeeBox | null>(null);
 	const [isSearching, setIsSearching] = useState(false);
 	const [isLoading, setIsLoading] = useState(false);
+	const [mode, setMode] = useState<'local' | 'uk'>('local');
 	
 	useEffect(() => {
 		const loadFeatured = async () => {
@@ -74,6 +76,34 @@ export function CoursePage({ onBack, onContinue }: CoursePageProps) {
 			onContinue(selectedCourse, selectedTeeBox);
 		}
 	};
+
+	// Handle UK API downloaded course -> map to local types and continue
+	const handleCourseDownloaded = useCallback((downloaded: any) => {
+		const teeBox: TeeBox = {
+			color: 'white',
+			name: 'Default',
+			courseRating: downloaded.courseRating || 0,
+			slopeRating: downloaded.slopeRating || 113,
+			totalYardage: downloaded.totalYardage || 0,
+			par: downloaded.totalPar,
+		};
+
+		const course: Course = {
+			id: String(downloaded.courseId),
+			name: downloaded.courseName,
+			location: downloaded.clubLocation || '',
+			totalPar: downloaded.totalPar || 72,
+			teeBoxes: [teeBox],
+			holes: downloaded.holes.map((h: any) => ({
+				number: h.number,
+				par: h.par,
+				strokeIndex: h.handicapIndex ?? 0,
+				yardages: { white: h.yardage || 0 },
+			})),
+		};
+
+		onContinue(course, teeBox);
+	}, [onContinue]);
 	
 	useEffect(() => {
 		const timer = setTimeout(() => {
@@ -101,119 +131,149 @@ export function CoursePage({ onBack, onContinue }: CoursePageProps) {
 				</div>
 				
 				<div className="container mx-auto px-4 flex-1">
-					{!selectedCourse ? (
+					{/* Mode toggle */}
+					<div className="flex justify-center mb-6 gap-2">
+						<Button
+							onClick={() => setMode('local')}
+							className={`rounded-2xl px-6 py-2 text-lg font-playfair border-2 ${mode === 'local' ? 'bg-transparent text-augusta-yellow border-augusta-yellow' : 'bg-transparent text-augusta-yellow-dark border-augusta-yellow/40'}`}
+						>
+							Local
+						</Button>
+						<Button
+							onClick={() => setMode('uk')}
+							className={`rounded-2xl px-6 py-2 text-lg font-playfair border-2 ${mode === 'uk' ? 'bg-transparent text-augusta-yellow border-augusta-yellow' : 'bg-transparent text-augusta-yellow-dark border-augusta-yellow/40'}`}
+						>
+							UK (beta)
+						</Button>
+					</div>
+
+					{mode === 'uk' ? (
 						<>
-							<div className="mb-8">
-								<div className="relative max-w-md mx-auto">
-									<Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-augusta-yellow-dark w-5 h-5" />
-									<Input
-										type="text"
-										placeholder="Search courses..."
-										value={searchQuery}
-										onChange={(e) => setSearchQuery(e.target.value)}
-										className="pl-12 h-14 text-lg font-playfair bg-transparent border-2 border-augusta-yellow text-augusta-yellow rounded-2xl"
-									/>
-									{isSearching && (
-										<div className="absolute right-3 top-1/2 transform -translate-y-1/2">
-											<div className="animate-spin rounded-full h-5 w-5 border-b-2 border-augusta-yellow"></div>
-										</div>
-									)}
-								</div>
+							<UKGolfCourseSelector onCourseDownloaded={handleCourseDownloaded} />
+							<div className="flex justify-center mt-8">
+								<Button 
+									onClick={onBack}
+									className="bg-transparent text-augusta-yellow-dark rounded-2xl px-6 py-3 text-lg font-playfair hover:bg-augusta-yellow-dark/10 border-2 border-transparent"
+								>
+									Back to Home
+								</Button>
 							</div>
-							
-							{searchResults.length > 0 && (
-								<div className="mb-8">
-									<h2 className="text-2xl font-playfair text-augusta-yellow mb-4">
-										Search Results
-									</h2>
-									<div className="space-y-3">
-										{searchResults.map((course) => (
-											<CourseCard
-												key={course.id}
-												course={course}
-												onSelect={() => handleCourseSelect(course.id)}
-												isLoading={isLoading}
-											/>
-										))}
-									</div>
-								</div>
-							)}
-							
-							{searchResults.length === 0 && featuredCourses.length > 0 && (
-								<div>
-									<h2 className="text-2xl font-playfair text-augusta-yellow mb-4">
-										Featured Courses
-									</h2>
-									<div className="space-y-3">
-										{featuredCourses.map((course) => (
-											<CourseCard
-												key={course.id}
-												course={course}
-												onSelect={() => handleCourseSelect(course.id)}
-												isLoading={isLoading}
-											/>
-										))}
-									</div>
-								</div>
-							)}
-							
-							{searchQuery && !isSearching && searchResults.length === 0 && (
-								<div className="text-center py-8">
-									<p className="text-lg font-playfair text-augusta-yellow-dark">
-										No courses found for "{searchQuery}"
-									</p>
-								</div>
-							)}
 						</>
 					) : (
-						<div className="space-y-6">
-							<div className="text-center">
-								<h2 className="text-4xl font-playfair text-augusta-yellow mb-2">
-									{selectedCourse!.name}
-								</h2>
-								<p className="text-lg font-playfair text-augusta-yellow-dark flex items-center justify-center">
-									<MapPin className="w-5 h-5 mr-2" />
-									{selectedCourse!.location}
-								</p>
-							</div>
-							
-							<Card className="p-6 border-2 border-augusta-yellow bg-transparent">
-								<div className="mb-6">
-									<h3 className="text-xl font-playfair text-augusta-yellow mb-3 text-center">Select Tee Box</h3>
-									<div className="space-y-3">
-										{selectedCourse!.teeBoxes.map((tee, index) => (
-											<div 
-												key={index} 
-												className={`flex items-center justify-between p-4 border-2 rounded-xl cursor-pointer transition-all duration-200 ${
-													selectedTeeBox?.color === tee.color 
-														? 'border-augusta-yellow bg-augusta-yellow/10' 
-														: 'border-augusta-yellow/30 hover:border-augusta-yellow/60 hover:bg-augusta-yellow/5'
-												}`}
-												onClick={() => handleTeeBoxSelect(tee)}
-											>
-												<div className="flex items-center">
-													<div 
-														className="w-5 h-5 rounded-full mr-4 border-2 border-augusta-yellow"
-														style={{ backgroundColor: getTeeColor(tee.color) }}
-													></div>
-													<div>
-														<span className="text-lg font-playfair text-augusta-yellow block">{tee.name}</span>
-														{tee.par && (
-															<span className="text-sm font-playfair text-augusta-yellow-dark">Par {tee.par}</span>
-														)}
-													</div>
-												</div>
-												<div className="text-right">
-													<div className="flex space-x-4 text-sm font-playfair text-augusta-yellow-dark">
-														<span>{tee.courseRating}CR</span>
-														<span>{tee.slopeRating}SR</span>
-														<span>{tee.totalYardage}y</span>
-													</div>
-												</div>
+						!selectedCourse ? (
+							<>
+								<div className="mb-8">
+									<div className="relative max-w-md mx-auto">
+										<Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-augusta-yellow-dark w-5 h-5" />
+										<Input
+											type="text"
+											placeholder="Search courses..."
+											value={searchQuery}
+											onChange={(e) => setSearchQuery(e.target.value)}
+											className="pl-12 h-14 text-lg font-playfair bg-transparent border-2 border-augusta-yellow text-augusta-yellow rounded-2xl"
+										/>
+										{isSearching && (
+											<div className="absolute right-3 top-1/2 transform -translate-y-1/2">
+												<div className="animate-spin rounded-full h-5 w-5 border-b-2 border-augusta-yellow"></div>
 											</div>
-										))}
+										)}
 									</div>
 								</div>
+								
+								{searchResults.length > 0 && (
+									<div className="mb-8">
+										<h2 className="text-2xl font-playfair text-augusta-yellow mb-4">
+											Search Results
+										</h2>
+										<div className="space-y-3">
+											{searchResults.map((course) => (
+												<CourseCard
+													key={course.id}
+													course={course}
+													onSelect={() => handleCourseSelect(course.id)}
+													isLoading={isLoading}
+												/>
+											))}
+										</div>
+									</div>
+								)}
+								
+								{searchResults.length === 0 && featuredCourses.length > 0 && (
+									<div>
+										<h2 className="text-2xl font-playfair text-augusta-yellow mb-4">
+											Featured Courses
+										</h2>
+										<div className="space-y-3">
+											{featuredCourses.map((course) => (
+												<CourseCard
+													key={course.id}
+													course={course}
+													onSelect={() => handleCourseSelect(course.id)}
+													isLoading={isLoading}
+												/>
+											))}
+										</div>
+									</div>
+								)}
+								
+								{searchQuery && !isSearching && searchResults.length === 0 && (
+									<div className="text-center py-8">
+										<p className="text-lg font-playfair text-augusta-yellow-dark">
+											No courses found for "{searchQuery}"
+										</p>
+									</div>
+								)}
+							</>
+						) : (
+							<div className="space-y-6">
+								<div className="text-center">
+									<h2 className="text-4xl font-playfair text-augusta-yellow mb-2">
+										{selectedCourse!.name}
+									</h2>
+									<p className="text-lg font-playfair text-augusta-yellow-dark flex items-center justify-center">
+										<MapPin className="w-5 h-5 mr-2" />
+										{selectedCourse!.location}
+									</p>
+								</div>
+								
+								<Card className="p-6 border-2 border-augusta-yellow bg-transparent">
+									<div className="mb-6">
+										<h3 className="text-xl font-playfair text-augusta-yellow mb-3 text-center">Select Tee Box</h3>
+										<div className="space-y-3">
+											{selectedCourse!.teeBoxes.map((tee, index) => (
+												<div 
+													key={index} 
+													className={`flex items-center justify-between p-4 border-2 rounded-xl cursor-pointer transition-all duration-200 ${
+														selectedTeeBox?.color === tee.color 
+															? 'border-augusta-yellow bg-augusta-yellow/10' 
+															: 'border-augusta-yellow/30 hover:border-augusta-yellow/60 hover:bg-augusta-yellow/5'
+													}`}
+													onClick={() => handleTeeBoxSelect(tee)}
+												>
+													<div className="flex items-center">
+														<div 
+															className="w-5 h-5 rounded-full mr-4 border-2 border-augusta-yellow"
+															style={{ backgroundColor: getTeeColor(tee.color) }}
+														></div>
+														<div>
+															<span className="text-lg font-playfair text-augusta-yellow block">{tee.name}</span>
+															{tee.par && (
+																<span className="text-sm font-playfair text-augusta-yellow-dark">Par {tee.par}</span>
+															)}
+														</div>
+													</div>
+													<div className="text-right">
+														<div className="flex space-x-4 text-sm font-playfair text-augusta-yellow-dark">
+															<span>{tee.courseRating}CR</span>
+															<span>{tee.slopeRating}SR</span>
+															<span>{tee.totalYardage}y</span>
+														</div>
+													</div>
+												</div>
+											))}
+										</div>
+									</div>
+								</Card>
 								
 								<div className="text-center pt-4 border-t-2 border-augusta-yellow/30">
 									<p className="text-lg font-playfair text-augusta-yellow">
@@ -225,7 +285,7 @@ export function CoursePage({ onBack, onContinue }: CoursePageProps) {
 										</p>
 									)}
 								</div>
-							</Card>
+							</div>
 							
 							<div className="flex flex-col items-center space-y-4">
 								<Button

@@ -1,0 +1,1 @@
+# vite.config.js removed - duplicate of vite.config.ts

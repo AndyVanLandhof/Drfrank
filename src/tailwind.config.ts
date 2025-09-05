@@ -1,0 +1,1 @@
+/* This file has been completely removed to prevent conflicts with tailwind.config.cjs */

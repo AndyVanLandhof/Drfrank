@@ -1,0 +1,1 @@
+# postcss.config.js removed - duplicate of postcss.config.cjs

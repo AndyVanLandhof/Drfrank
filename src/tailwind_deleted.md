@@ -1,0 +1,1 @@
+# tailwind.config.ts removed - duplicate of tailwind.config.cjs

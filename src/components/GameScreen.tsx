@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Card } from './ui/card';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Star } from 'lucide-react';
 import { MatchStatusDialog } from './MatchStatusDialog';
 import { AUGUSTA_SPRINGS_COURSE } from '../constants/course';
 import { Player, HoleScore, GameState } from '../types/game';
@@ -268,205 +268,143 @@ export function GameScreen({ players, selectedFormats, teams, selectedCourse, on
     const isFourball = selectedFormats.includes("fourball");
     const isFoursomes = selectedFormats.includes("foursomes");
     const isScramble = selectedFormats.includes("scramble");
-    
+
     let statusLines: string[] = [];
-    
-    // Match Play Status
+
+    // 2-player Match Play (NET per hole). Keep other formats going regardless.
     if (isMatchPlay && cumulativeScores.length === 2) {
       const [player1, player2] = cumulativeScores;
       let player1HolesWon = 0;
       let player2HolesWon = 0;
-      
+
       for (let holeIndex = 0; holeIndex < gameState.currentHole; holeIndex++) {
-        const player1Score = gameState.scores[player1.name][holeIndex];
-        const player2Score = gameState.scores[player2.name][holeIndex];
-        
-        if (player1Score.gross !== null && player2Score.gross !== null) {
-          if (player1Score.gross < player2Score.gross) {
-            player1HolesWon++;
-          } else if (player2Score.gross < player1Score.gross) {
-            player2HolesWon++;
-          }
+        const s1 = gameState.scores[player1.name][holeIndex];
+        const s2 = gameState.scores[player2.name][holeIndex];
+        if (s1.net !== null && s2.net !== null) {
+          if (s1.net < s2.net) player1HolesWon++;
+          else if (s2.net < s1.net) player2HolesWon++;
         }
       }
-      
-      const holeDifference = player1HolesWon - player2HolesWon;
-      
-      if (holeDifference === 0) {
+
+      const holeDiff = player1HolesWon - player2HolesWon;
+      const totalHoles = Array.isArray(gameState.course) ? gameState.course.length : 18;
+      const holesRemaining = Math.max(0, totalHoles - gameState.currentHole);
+
+      if (Math.abs(holeDiff) > holesRemaining) {
+        const lead = Math.abs(holeDiff);
+        if (holeDiff > 0) statusLines.push(`${player1.name} wins ${lead}&${holesRemaining}`);
+        else statusLines.push(`${player2.name} wins ${lead}&${holesRemaining}`);
+      } else if (holeDiff === 0) {
         statusLines.push("All Square");
-      } else if (holeDifference > 0) {
-        statusLines.push(`${player1.name} is ${Math.abs(holeDifference)}-Up`);
+      } else if (holeDiff > 0) {
+        statusLines.push(`${player1.name} is ${leadText(holeDiff)}-Up`);
       } else {
-        statusLines.push(`${player2.name} is ${Math.abs(holeDifference)}-Up`);
+        statusLines.push(`${player2.name} is ${leadText(-holeDiff)}-Up`);
       }
     }
-    
-    // Skins Status
+
+    // Skins
     if (isSkins) {
       const { skins } = calculateSkins(players, gameState);
-      const skinsEntries = Object.entries(skins).filter(([_, count]) => count > 0);
-      
-      if (skinsEntries.length > 0) {
-        const maxSkins = Math.max(...Object.values(skins));
-        const leaders = skinsEntries.filter(([_, count]) => count === maxSkins);
-        
-        if (leaders.length === 1) {
-          const [leader, count] = leaders[0];
-          statusLines.push(`${leader} has ${count} skin${count > 1 ? 's' : ''}`);
-        } else {
-          statusLines.push(`Tied with ${maxSkins} skin${maxSkins > 1 ? 's' : ''} each`);
-        }
+      const entries = Object.entries(skins).filter(([_, c]) => c > 0);
+      if (entries.length > 0) {
+        const max = Math.max(...Object.values(skins));
+        const leaders = entries.filter(([_, c]) => c === max).map(([n]) => n);
+        statusLines.push(leaders.length === 1 ? `${leaders[0]} has ${max} skin${max > 1 ? 's' : ''}` : `Tied with ${max} skin${max > 1 ? 's' : ''}`);
       } else {
         statusLines.push("No skins won yet");
       }
     }
-    
-    // Nassau Status
+
+    // Nassau
     if (isNassau) {
       const nassau = calculateNassau(players, gameState);
-      
       if (gameState.currentHole > 9) {
-        // Show front 9 results
-        const front9Winner = Object.entries(nassau).find(([_, points]) => points.front9 > 0);
-        if (front9Winner) {
-          statusLines.push(`${front9Winner[0]} won Front 9`);
-        }
-        
+        const front = Object.entries(nassau).find(([_, p]) => p.front9 > 0);
+        if (front) statusLines.push(`${front[0]} won Front 9`);
         if (gameState.currentHole > 18) {
-          // Show final Nassau results
-          const totalPoints = Object.entries(nassau).map(([name, points]) => ({
-            name,
-            total: points.front9 + points.back9 + points.overall
-          }));
-          
-          const maxPoints = Math.max(...totalPoints.map(p => p.total));
-          const nassauWinner = totalPoints.find(p => p.total === maxPoints);
-          
-          if (nassauWinner && maxPoints > 0) {
-            const otherPoints = Math.max(...totalPoints.filter(p => p.name !== nassauWinner.name).map(p => p.total));
-            statusLines.push(`Nassau: ${maxPoints}-${otherPoints}`);
+          const totals = Object.entries(nassau).map(([name, p]) => ({ name, total: p.front9 + p.back9 + p.overall }));
+          const max = Math.max(...totals.map(t => t.total));
+          const winner = totals.find(t => t.total === max);
+          if (winner && max > 0) {
+            const other = Math.max(...totals.filter(t => t.name !== winner.name).map(t => t.total));
+            statusLines.push(`Nassau: ${max}-${other}`);
           }
         }
       }
     }
-    
-    // Six Point System Status
+
+    // Six Point System (3 players)
     if (isSixPoint && players.length === 3) {
-      const sixPoint = calculateSixPointSystem(players, gameState); // Recalculate for current status
-      console.log('Six Point Status - Current calculations:', sixPoint);
-      
-      const sixPointEntries = Object.entries(sixPoint);
-      const allValues = Object.values(sixPoint);
-      const maxPoints = Math.max(...allValues);
-      const hasAnyPoints = maxPoints > 0;
-      
-      if (hasAnyPoints) {
-        const leaders = sixPointEntries.filter(([_, points]) => points === maxPoints);
-        
-        if (leaders.length === 1) {
-          const [leader, points] = leaders[0];
-          const otherScores = sixPointEntries
-            .filter(([name, _]) => name !== leader)
-            .map(([_, points]) => points)
-            .sort((a, b) => b - a);
-          
-          statusLines.push(`Six Point: ${leader} leads ${points}-${otherScores[0]}-${otherScores[1]}`);
-        } else {
-          // Multiple leaders tied - show all three scores
-          const sortedScores = allValues.sort((a, b) => b - a);
-          statusLines.push(`Six Point: Tied ${sortedScores[0]}-${sortedScores[1]}-${sortedScores[2]}`);
-        }
+      const sixPoint = calculateSixPointSystem(players, gameState);
+      const vals = Object.values(sixPoint);
+      const max = Math.max(...vals);
+      if (max > 0) {
+        const leaders = Object.entries(sixPoint).filter(([_, v]) => v === max);
+        if (leaders.length === 1) statusLines.push(`Six Point: ${leaders[0][0]} leads with ${max}`);
+        else statusLines.push(`Six Point: Tied at ${max}`);
       } else {
         statusLines.push("Six Point: All tied at 0");
       }
     }
 
-    // Fourball Status
+    // Fourball (team match play)
     if (isFourball && teams && players.length === 4) {
-      // Calculate current fourball status
-      const currentFourball = calculateFourball(players, gameState, teams) as any;
-      if (currentFourball.teamA && currentFourball.teamB) {
-        const teamAHoles = currentFourball.teamA.holesWon || 0;
-        const teamBHoles = currentFourball.teamB.holesWon || 0;
-        const holeDifference = teamAHoles - teamBHoles;
-        
-        if (holeDifference === 0) {
-          statusLines.push("Fourball: All Square");
-        } else if (holeDifference > 0) {
-          statusLines.push(`Fourball: Team A ${Math.abs(holeDifference)}-Up`);
-        } else {
-          statusLines.push(`Fourball: Team B ${Math.abs(holeDifference)}-Up`);
-        }
+      const fb: any = calculateFourball(players, gameState, teams);
+      if (fb.teamA && fb.teamB) {
+        const diff = (fb.teamA.holesWon || 0) - (fb.teamB.holesWon || 0);
+        const totalHoles = Array.isArray(gameState.course) ? gameState.course.length : 18;
+        const holesRemaining = Math.max(0, totalHoles - gameState.currentHole);
+        if (Math.abs(diff) > holesRemaining) statusLines.push(`Fourball: Team ${diff > 0 ? 'A' : 'B'} wins ${Math.abs(diff)}&${holesRemaining}`);
+        else if (diff === 0) statusLines.push("Fourball: All Square");
+        else statusLines.push(`Fourball: Team ${diff > 0 ? 'A' : 'B'} ${Math.abs(diff)}-Up`);
       }
     }
 
-    // Foursomes Status
+    // Foursomes (team match play)
     if (isFoursomes && teams && players.length === 4) {
-      // Calculate current foursomes status
-      const currentFoursomes = calculateFoursomes(players, gameState, teams) as any;
-      if (currentFoursomes.teamA && currentFoursomes.teamB) {
-        const teamAHoles = currentFoursomes.teamA.holesWon || 0;
-        const teamBHoles = currentFoursomes.teamB.holesWon || 0;
-        const holeDifference = teamAHoles - teamBHoles;
-        
-        if (holeDifference === 0) {
-          statusLines.push("Foursomes: All Square");
-        } else if (holeDifference > 0) {
-          statusLines.push(`Foursomes: Team A ${Math.abs(holeDifference)}-Up`);
-        } else {
-          statusLines.push(`Foursomes: Team B ${Math.abs(holeDifference)}-Up`);
-        }
+      const fs: any = calculateFoursomes(players, gameState, teams);
+      if (fs.teamA && fs.teamB) {
+        const diff = (fs.teamA.holesWon || 0) - (fs.teamB.holesWon || 0);
+        const totalHoles = Array.isArray(gameState.course) ? gameState.course.length : 18;
+        const holesRemaining = Math.max(0, totalHoles - gameState.currentHole);
+        if (Math.abs(diff) > holesRemaining) statusLines.push(`Foursomes: Team ${diff > 0 ? 'A' : 'B'} wins ${Math.abs(diff)}&${holesRemaining}`);
+        else if (diff === 0) statusLines.push("Foursomes: All Square");
+        else statusLines.push(`Foursomes: Team ${diff > 0 ? 'A' : 'B'} ${Math.abs(diff)}-Up`);
       }
     }
 
-    // Scramble Status
+    // Scramble (aggregate), informational only
     if (isScramble && teams && players.length === 4) {
-      // Calculate current scramble status
-      const currentScramble = calculateScramble(players, gameState, teams) as any;
-      if (currentScramble.teamA && currentScramble.teamB) {
-        const teamAScore = currentScramble.teamA.totalScore || 0;
-        const teamBScore = currentScramble.teamB.totalScore || 0;
-        
-        if (teamAScore === 0 && teamBScore === 0) {
-          statusLines.push("Scramble: No scores yet");
-        } else if (teamAScore === teamBScore) {
-          statusLines.push("Scramble: Teams tied");
-        } else if (teamAScore < teamBScore) {
-          statusLines.push(`Scramble: Team A leads by ${teamBScore - teamAScore}`);
-        } else {
-          statusLines.push(`Scramble: Team B leads by ${teamAScore - teamBScore}`);
-        }
+      const sc: any = calculateScramble(players, gameState, teams);
+      if (sc.teamA && sc.teamB) {
+        const a = sc.teamA.totalScore || 0;
+        const b = sc.teamB.totalScore || 0;
+        if (a === 0 && b === 0) statusLines.push("Scramble: No scores yet");
+        else if (a === b) statusLines.push("Scramble: Teams tied");
+        else statusLines.push(`Scramble: Team ${a < b ? 'A' : 'B'} leads by ${Math.abs(a - b)}`);
       }
     }
-    
-    // Fallback to stroke play if no other formats
+
+    // Fallback stroke-play leaderboard line if nothing else
     if (statusLines.length === 0) {
       if (cumulativeScores.length === 2) {
-        const [player1, player2] = cumulativeScores;
-        const strokeDifference = player1.grossTotal - player2.grossTotal;
-        
-        if (strokeDifference === 0) {
-          statusLines.push("Tied");
-        } else if (strokeDifference > 0) {
-          statusLines.push(`${player2.name} leads by ${Math.abs(strokeDifference)} stroke${Math.abs(strokeDifference) > 1 ? 's' : ''}`);
-        } else {
-          statusLines.push(`${player1.name} leads by ${Math.abs(strokeDifference)} stroke${Math.abs(strokeDifference) > 1 ? 's' : ''}`);
-        }
+        const [p1, p2] = cumulativeScores;
+        const diff = p1.grossTotal - p2.grossTotal;
+        if (diff === 0) statusLines.push("Tied");
+        else statusLines.push(`${diff > 0 ? p2.name : p1.name} leads by ${Math.abs(diff)} stroke${Math.abs(diff) > 1 ? 's' : ''}`);
       } else {
-        const sortedByGross = [...cumulativeScores].sort((a, b) => a.grossTotal - b.grossTotal);
-        const leader = sortedByGross[0];
-        const strokesAhead = sortedByGross[1]?.grossTotal - leader.grossTotal;
-        
-        if (strokesAhead === 0) {
-          statusLines.push("Tied for the lead");
-        } else {
-          statusLines.push(`${leader.name} leads by ${strokesAhead} stroke${strokesAhead > 1 ? 's' : ''}`);
-        }
+        const sorted = [...cumulativeScores].sort((a, b) => a.grossTotal - b.grossTotal);
+        const leader = sorted[0];
+        const ahead = (sorted[1]?.grossTotal ?? leader.grossTotal) - leader.grossTotal;
+        statusLines.push(ahead === 0 ? "Tied for the lead" : `${leader.name} leads by ${ahead} stroke${ahead > 1 ? 's' : ''}`);
       }
     }
-    
+
     return statusLines;
   };
+
+  function leadText(n: number) { return `${n}`; }
 
   return (
     <div className="min-h-screen bg-background p-4">
@@ -512,36 +450,27 @@ export function GameScreen({ players, selectedFormats, teams, selectedCourse, on
               </div>
             </div>
             
-            {/* Hole Name and Yardage */}
+            {/* Hole Name, Yardage, Stroke Index */}
             <div className="text-center">
-              <p className="text-base font-playfair text-augusta-yellow-dark">
-                {gameState.course[gameState.currentHole - 1].name || `Hole ${gameState.currentHole}`}
+              <p className="text-2xl font-playfair text-augusta-yellow-dark">
+                {(() => {
+                  const currentHole = gameState.course[gameState.currentHole - 1];
+                  const name = currentHole.name || `Hole ${gameState.currentHole}`;
+                  const defaultTeeColor = players[0]?.teeColor || 'white';
+                  let yardage = 0;
+                  if ('yardages' in currentHole && currentHole.yardages) {
+                    yardage = currentHole.yardages[defaultTeeColor] || currentHole.yardages.white || 0;
+                  } else if ('yardage' in currentHole && currentHole.yardage) {
+                    yardage = currentHole.yardage;
+                  }
+                  // Resolve stroke index for selected tee
+                  const strokeIndex = typeof currentHole.strokeIndex === 'object'
+                    ? currentHole.strokeIndex[defaultTeeColor] || currentHole.strokeIndex.white || gameState.currentHole
+                    : currentHole.strokeIndex || gameState.currentHole;
+                  const yardText = yardage > 0 ? `${yardage} yards` : '';
+                  return `${name}${yardText ? ' • ' + yardText : ''} • S.I. ${strokeIndex}`;
+                })()}
               </p>
-              {/* Display yardage for selected tee or default white tees */}
-              {(() => {
-                const currentHole = gameState.course[gameState.currentHole - 1];
-                let defaultYardage = 0;
-                
-                // Get default tee color from first player, or use white
-                const defaultTeeColor = players[0]?.teeColor || 'white';
-                
-                if ('yardages' in currentHole && currentHole.yardages) {
-                  // New structure: per-tee yardages
-                  defaultYardage = currentHole.yardages[defaultTeeColor] || currentHole.yardages.white || 0;
-                } else if ('yardage' in currentHole && currentHole.yardage) {
-                  // Old structure: single yardage for all tees
-                  defaultYardage = currentHole.yardage;
-                }
-                
-                if (defaultYardage > 0) {
-                  return (
-                    <p className="text-sm font-playfair text-augusta-yellow-dark">
-                      {defaultYardage} yards
-                    </p>
-                  );
-                }
-                return null;
-              })()}
             </div>
             
             {/* Skins Carryover Indicator */}
@@ -582,22 +511,35 @@ export function GameScreen({ players, selectedFormats, teams, selectedCourse, on
                   <div className="flex items-center justify-between">
                     <div className="flex-1">
                       <h3 className="text-xl font-playfair text-augusta-yellow">{player.name}</h3>
-                      <div className="flex items-center space-x-3 mt-1">
-                        <div className="flex items-center space-x-1">
-                          <div 
-                            className="w-3 h-3 rounded-full border border-augusta-yellow-dark"
-                            style={{ backgroundColor: getTeeColor(playerTeeColor) }}
-                          ></div>
-                          <span className="text-sm font-playfair text-augusta-yellow-dark">
-                            {getTeeDisplayName(playerTeeColor)}
-                          </span>
-                        </div>
-                        {holeYardage > 0 && (
-                          <span className="text-sm font-playfair text-augusta-yellow-dark">
-                            {holeYardage}y
-                          </span>
-                        )}
-                      </div>
+                      {/* Handicap strokes indicator */}
+                      {(() => {
+                        const hole = gameState.course[gameState.currentHole - 1];
+                        const tee = playerTeeColor;
+                        const strokeIndex = typeof hole.strokeIndex === 'object'
+                          ? hole.strokeIndex[tee] || hole.strokeIndex.white || gameState.currentHole
+                          : hole.strokeIndex || gameState.currentHole;
+                        // Compute strokes for this player on this hole (same logic inputs as calculateNetScore)
+                        const playerObj = players.find(p => p.name === player.name);
+                        const handicap = parseInt(playerObj?.handicap || '0') || 0;
+                        const playerTeeBox = (selectedCourse?.teeBoxes || []).find(t => t.color === tee);
+                        const courseRating = playerTeeBox?.courseRating || 72;
+                        const slopeRating = playerTeeBox?.slopeRating || 113;
+                        const courseHandicap = Math.round((handicap * (slopeRating) / 113) + (courseRating - 72));
+                        const strokesOnThisHole = strokeIndex <= Math.abs(courseHandicap) ? Math.sign(courseHandicap) : 0;
+                        const extraStrokes = Math.abs(courseHandicap) > 18 && strokeIndex <= (Math.abs(courseHandicap) - 18) ? Math.sign(courseHandicap) : 0;
+                        const totalStrokes = strokesOnThisHole + extraStrokes;
+                        if (totalStrokes > 0) {
+                          return (
+                            <div className="flex items-center gap-1 mt-1">
+                              <Star className="w-4 h-4 text-augusta-yellow" />
+                              <span className="text-xs font-playfair text-augusta-yellow-dark">
+                                {totalStrokes} {totalStrokes === 1 ? 'Stroke' : 'Strokes'}
+                              </span>
+                            </div>
+                          );
+                        }
+                        return null;
+                      })()}
                     </div>
                     <div className="text-center">
                       <Input
@@ -628,7 +570,7 @@ export function GameScreen({ players, selectedFormats, teams, selectedCourse, on
                             }
                           }
                         }}
-                        className={`w-20 h-14 text-center text-xl font-playfair bg-transparent border-2 rounded-xl no-spinners ${
+                        className={`w-32 h-24 md:w-36 md:h-28 text-center text-3xl md:text-4xl leading-none font-playfair bg-transparent border-2 rounded-xl no-spinners ${
                           isCurrentHoleConfirmed 
                             ? 'border-augusta-yellow-dark text-augusta-yellow-dark opacity-60 cursor-not-allowed' 
                             : 'border-augusta-yellow text-augusta-yellow'

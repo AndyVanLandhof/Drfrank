@@ -136,10 +136,11 @@ export const calculateSixPointSystem = (players: Player[], gameState: GameState)
     sixPoint[player.name] = 0;
   });
   
-  console.log('Six Point Debug - Starting calculation for holes 1 to', gameState.currentHole - 1);
+  console.log('Six Point Debug - Starting calculation for holes 1 to', gameState.currentHole);
   
-  // Calculate points for each completed hole
-  for (let holeIndex = 0; holeIndex < gameState.currentHole - 1; holeIndex++) {
+  // Calculate points for each hole up to and including the current hole
+  // The current hole is included only when all three players have entered scores
+  for (let holeIndex = 0; holeIndex < gameState.currentHole; holeIndex++) {
     const holeScores = players.map(player => ({
       name: player.name,
       netScore: gameState.scores[player.name][holeIndex].net

@@ -29,6 +29,10 @@ export function MatchStatusDialog({
   calculateMatchStatus, 
   calculateCumulativeScores 
 }: MatchStatusDialogProps) {
+  // Recompute match status on open to include current-hole updates
+  const statusLines = calculateMatchStatus();
+  const cumulative = calculateCumulativeScores();
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogTrigger asChild>
@@ -52,37 +56,89 @@ export function MatchStatusDialog({
           {/* Overall Match Status */}
           <div className="text-center">
             <div className="space-y-4">
-              {calculateMatchStatus().map((status, index) => {
-                // Remove colons and restructure team format displays
-                let displayStatus = status.replace(':', '');
-                
-                // Check if this is a team format status (contains "Team A" or "Team B")
-                if (displayStatus.includes('Team A') || displayStatus.includes('Team B')) {
-                  // Split format name and team result
-                  const parts = displayStatus.split(' Team');
-                  if (parts.length === 2) {
-                    const formatName = parts[0]; // e.g., "Fourball"
-                    const teamResult = 'Team' + parts[1]; // e.g., "Team A 2-Up"
-                    
-                    return (
-                      <div key={index} className="space-y-1">
-                        <p className="text-3xl font-playfair text-augusta-yellow-dark">
-                          {formatName}
-                        </p>
-                        <p className="text-5xl font-playfair text-augusta-yellow">
-                          {teamResult}
-                        </p>
-                      </div>
-                    );
+              {(() => {
+                const statuses = statusLines;
+                const isThreePlayerSixPointMain = selectedFormats.includes('sixpoint') && players.length === 3;
+                const principalPrefixes = [
+                  'All Square',
+                  'wins',
+                  'is',
+                  'Fourball',
+                  'Foursomes',
+                  'Scramble',
+                ];
+                const sideGamePrefixes = [
+                  'Nassau',
+                  'No skins',
+                  'Tied with',
+                  'has',
+                  'Skins',
+                ];
+
+                const filteredStatuses = isThreePlayerSixPointMain
+                  ? statuses.filter(s => !s.trim().startsWith('Six Point'))
+                  : statuses;
+
+                const principal: string[] = [];
+                const side: string[] = [];
+                filteredStatuses.forEach((s) => {
+                  const trimmed = s.trim();
+                  if (principalPrefixes.some((p) => trimmed.startsWith(p))) principal.push(trimmed);
+                  else if (sideGamePrefixes.some((p) => trimmed.startsWith(p))) side.push(trimmed);
+                  else if (trimmed.includes('Team A') || trimmed.includes('Team B')) principal.push(trimmed);
+                  else side.push(trimmed);
+                });
+
+                const renderPrincipal = (status: string, key: string) => {
+                  let displayStatus = status.replace(':', '');
+                  if (displayStatus.includes('Team A') || displayStatus.includes('Team B')) {
+                    const parts = displayStatus.split(' Team');
+                    if (parts.length === 2) {
+                      const formatName = parts[0];
+                      const teamResult = 'Team' + parts[1];
+                      return (
+                        <div key={key} className="space-y-1">
+                          <p className="text-3xl font-playfair text-augusta-yellow-dark">{formatName}</p>
+                          <p className="text-5xl font-playfair text-augusta-yellow">{teamResult}</p>
+                        </div>
+                      );
+                    }
                   }
-                }
-                
+                  return (
+                    <p key={key} className="text-5xl font-playfair text-augusta-yellow">{displayStatus}</p>
+                  );
+                };
+
                 return (
-                  <p key={index} className="text-5xl font-playfair text-augusta-yellow">
-                    {displayStatus}
-                  </p>
+                  <>
+                    {isThreePlayerSixPointMain && (
+                      <div className="space-y-2">
+                        <p className="text-3xl font-playfair text-augusta-yellow-dark">Six Points System</p>
+                        <div className="space-y-1">
+                          {[...cumulative]
+                            .sort((a, b) => (b.sixPointTotal || 0) - (a.sixPointTotal || 0))
+                            .map((p) => (
+                              <p key={p.name} className="text-2xl font-playfair text-augusta-yellow">
+                                {p.name} - {p.sixPointTotal || 0} points
+                              </p>
+                            ))}
+                        </div>
+                      </div>
+                    )}
+                    {principal.map((s, i) => renderPrincipal(s, `p-${i}`))}
+                    {side.length > 0 && (
+                      <div className="pt-4">
+                        <p className="text-base font-playfair text-augusta-yellow-dark">Side Games</p>
+                        <div className="mt-2 space-y-2">
+                          {side.map((s, i) => (
+                            <p key={`s-${i}`} className="text-xl font-playfair text-augusta-yellow">{s.replace(':', ': ')}</p>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </>
                 );
-              })}
+              })()}
             </div>
           </div>
 

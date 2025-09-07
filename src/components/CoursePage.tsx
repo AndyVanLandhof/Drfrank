@@ -6,6 +6,8 @@ import { Search, MapPin } from 'lucide-react';
 import { CourseService } from '../services/courseService';
 import { Course, CourseSearchResult, TeeBox } from '../types/course';
 import UKGolfCourseSelector from './UKGolfCourseSelector';
+import ScorecardScanner from './ScorecardScanner';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from './ui/dialog';
 
 interface CoursePageProps {
 	onBack: () => void;
@@ -21,6 +23,7 @@ export function CoursePage({ onBack, onContinue }: CoursePageProps) {
 	const [isSearching, setIsSearching] = useState(false);
 	const [isLoading, setIsLoading] = useState(false);
 	const [mode, setMode] = useState<'local' | 'uk'>('local');
+	const [scanOpen, setScanOpen] = useState(false);
 	
 	useEffect(() => {
 		const loadFeatured = async () => {
@@ -59,6 +62,7 @@ export function CoursePage({ onBack, onContinue }: CoursePageProps) {
 			const course = await CourseService.getCourseById(courseId);
 			if (course) {
 				setSelectedCourse(course);
+				setSelectedTeeBox(null);
 			}
 		} catch (error) {
 			console.error('Failed to load course details:', error);
@@ -179,6 +183,84 @@ export function CoursePage({ onBack, onContinue }: CoursePageProps) {
 										)}
 									</div>
 								</div>
+
+								{/* Scan scorecard entry */}
+								<div className="flex justify-center mb-6">
+									<Dialog open={scanOpen} onOpenChange={setScanOpen}>
+										<DialogTrigger asChild>
+											<Button className="rounded-2xl px-6 py-2 text-lg font-playfair border-2 bg-transparent text-augusta-yellow border-augusta-yellow">Scan scorecard (beta)</Button>
+										</DialogTrigger>
+										<DialogContent className="border-2 border-augusta-yellow">
+											<DialogHeader>
+												<DialogTitle className="text-augusta-yellow">Scan scorecard</DialogTitle>
+											</DialogHeader>
+											<ScorecardScanner
+												onCancel={() => setScanOpen(false)}
+												onConfirm={({ clubName, courseName, holes }) => {
+													// Map to Course/TeeBox and continue; also save to My Courses & Recent
+													const teeBox: TeeBox = {
+														color: 'white',
+														name: 'Default',
+														courseRating: 0,
+														slopeRating: 113,
+														totalYardage: holes.reduce((s, h) => s + (h.yardage || 0), 0),
+														par: holes.reduce((s, h) => s + (h.par || 0), 0),
+													};
+													const course: Course = {
+														id: `${clubName}-${courseName}`.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+														name: courseName,
+														location: clubName,
+														teeBoxes: [teeBox],
+														totalPar: teeBox.par || 72,
+														holes: holes.map(h => ({
+															number: h.number,
+															par: h.par || 0,
+															strokeIndex: h.strokeIndex || 0,
+															yardages: { white: h.yardage || 0 },
+														})),
+													};
+
+													try {
+														const completeCourseData = {
+															courseId: course.id,
+															courseName: course.name,
+															clubName: course.location,
+															clubLocation: course.location,
+															totalHoles: holes.length,
+															totalPar: course.totalPar,
+															totalYardage: teeBox.totalYardage,
+															holes: holes.map(h => ({
+																number: h.number,
+																par: h.par || 0,
+																yardage: h.yardage || 0,
+																handicapIndex: h.strokeIndex || 0,
+																description: '',
+															})),
+															slopeRating: teeBox.slopeRating,
+															courseRating: teeBox.courseRating,
+															downloadedAt: new Date().toISOString(),
+															source: 'Scanned scorecard',
+														};
+														localStorage.setItem(`golf_course_${course.id}`, JSON.stringify(completeCourseData));
+														// Update My Courses
+														const myRaw = localStorage.getItem('my_golf_courses') || '[]';
+														const myList = JSON.parse(myRaw) as any[];
+														const myWithout = myList.filter(c => String(c.courseId) !== String(course.id));
+														myWithout.unshift(completeCourseData);
+														localStorage.setItem('my_golf_courses', JSON.stringify(myWithout.slice(0,50)));
+														// Update Recent
+														const recentRaw = localStorage.getItem('recent_golf_courses') || '[]';
+														const recent = JSON.parse(recentRaw) as any[];
+														recent.unshift({ courseId: course.id, courseName: course.name, clubName: course.location, downloadedAt: new Date().toISOString() });
+														localStorage.setItem('recent_golf_courses', JSON.stringify(recent.slice(0,10)));
+													} catch {}
+													setScanOpen(false);
+													onContinue(course, teeBox);
+												}}
+											/>
+										</DialogContent>
+									</Dialog>
+								</div>
 								
 								{searchResults.length > 0 && (
 									<div className="mb-8">
@@ -225,7 +307,7 @@ export function CoursePage({ onBack, onContinue }: CoursePageProps) {
 								)}
 							</>
 						) : (
-							<div className="space-y-6">
+							<>
 								<div className="text-center">
 									<h2 className="text-4xl font-playfair text-augusta-yellow mb-2">
 										{selectedCourse!.name}
@@ -285,41 +367,42 @@ export function CoursePage({ onBack, onContinue }: CoursePageProps) {
 										</p>
 									)}
 								</div>
-							</div>
-							
-							<div className="flex flex-col items-center space-y-4">
-								<Button
-									onClick={handleConfirm}
-									disabled={!selectedTeeBox}
-									className={`rounded-2xl px-8 py-3 text-lg font-playfair border-2 w-64 ${
-										selectedTeeBox
-											? 'bg-transparent text-augusta-yellow hover:bg-augusta-yellow/10 border-augusta-yellow'
-											: 'bg-transparent text-augusta-yellow-dark/50 border-augusta-yellow-dark/50 cursor-not-allowed'
-									}`}
-								>
-									Continue to Players
-								</Button>
-								<Button
-									onClick={() => {
-										setSelectedCourse(null);
-										setSelectedTeeBox(null);
-									}}
-									className="bg-transparent text-augusta-yellow-dark rounded-2xl px-8 py-3 text-lg font-playfair hover:bg-augusta-yellow-dark/10 border-2 border-augusta-yellow-dark w-64"
-								>
-									Change Course
-								</Button>
-							</div>
-							
-							<div className="flex justify-center mt-4">
-								<Button 
-									onClick={onBack}
-									className="bg-transparent text-augusta-yellow-dark rounded-2xl px-6 py-3 text-lg font-playfair hover:bg-augusta-yellow-dark/10 border-2 border-transparent"
-								>
-									Back to Home
-								</Button>
-							</div>
-						</div>
+							</>
+						)
 					)}
+
+					{/* Action buttons shown always; Continue is disabled until tee box selected */}
+					<div className="flex flex-col items-center gap-4 mt-6">
+						<Button
+							onClick={handleConfirm}
+							disabled={!selectedTeeBox}
+							className={`rounded-2xl px-8 py-3 text-lg font-playfair border-2 w-64 ${
+								selectedTeeBox
+									? 'bg-transparent text-augusta-yellow hover:bg-augusta-yellow/10 border-augusta-yellow'
+									: 'bg-transparent text-augusta-yellow-dark/50 border-augusta-yellow-dark/50 cursor-not-allowed'
+							}`}
+						>
+							Continue to Players
+						</Button>
+						<Button
+							onClick={() => {
+								setSelectedCourse(null);
+								setSelectedTeeBox(null);
+							}}
+							className="bg-transparent text-augusta-yellow-dark rounded-2xl px-8 py-3 text-lg font-playfair hover:bg-augusta-yellow-dark/10 border-2 border-augusta-yellow-dark w-64"
+						>
+							Change Course
+						</Button>
+					</div>
+					
+					<div className="flex justify-center mt-4">
+						<Button 
+							onClick={onBack}
+							className="bg-transparent text-augusta-yellow-dark rounded-2xl px-6 py-3 text-lg font-playfair hover:bg-augusta-yellow-dark/10 border-2 border-transparent"
+						>
+							Back to Home
+						</Button>
+					</div>
 				</div>
 				
 				<div className="pb-4"></div>

@@ -47,16 +47,29 @@ export default function UKGolfCourseSelector({ onCourseDownloaded }: UKGolfCours
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState<string>('');
+  const [courseToConfirm, setCourseToConfirm] = useState<{ club: Club; course: Course } | null>(null);
+  const [myCourses, setMyCourses] = useState<any[]>([]);
+  const [holesAvailable, setHolesAvailable] = useState<boolean>(true);
 
   const fetchClubs = async () => {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch(`${API_BASE_URL}/clubs`);
-      if (!response.ok) throw new Error(`API Error: ${response.status}`);
-      const data = await response.json();
-      const items = (data && (data.items || [])) as Club[];
-      setClubs(items);
+      const pageSize = 500;
+      const maxPages = 10; // cap to avoid excessive requests
+      const aggregated: Club[] = [];
+      for (let page = 0; page < maxPages; page++) {
+        const offset = page * pageSize;
+        const res = await fetch(`${API_BASE_URL}/clubs?offset=${offset}&limit=${pageSize}`);
+        if (!res.ok) throw new Error(`API Error: ${res.status}`);
+        const data = await res.json();
+        const items: Club[] = (data && (data.items || [])) as Club[];
+        if (!items || items.length === 0) break;
+        aggregated.push(...items);
+        // stop if we've likely reached the end (API may return total)
+        if ((data.total && aggregated.length >= data.total) || items.length < pageSize) break;
+      }
+      setClubs(aggregated);
     } catch (err: any) {
       setError(`Failed to load clubs: ${err.message}`);
     } finally {
@@ -81,12 +94,21 @@ export default function UKGolfCourseSelector({ onCourseDownloaded }: UKGolfCours
     }
   };
 
-  const downloadCourseData = async (club: Club, course: Course) => {
+  const downloadCourseData = async (
+    club: Club,
+    course: Course,
+    action: 'load' | 'save' | 'saveAndLoad' = 'load'
+  ) => {
     setLoading(true);
     setError(null);
     try {
       const holesResponse = await fetch(`${API_BASE_URL}/holes?course_id=${course.id}`);
-      if (!holesResponse.ok) throw new Error(`API Error: ${holesResponse.status}`);
+      if (!holesResponse.ok) {
+        if (holesResponse.status === 404) {
+          throw new Error('Holes data endpoint not available from provider (404). Please use Local mode for now.');
+        }
+        throw new Error(`API Error: ${holesResponse.status}`);
+      }
       const holesData = await holesResponse.json();
       const holes: Hole[] = (holesData && (holesData.holes || holesData)) || [];
 
@@ -94,7 +116,7 @@ export default function UKGolfCourseSelector({ onCourseDownloaded }: UKGolfCours
         courseId: course.id,
         courseName: course.name,
         clubName: club.name,
-        clubLocation: club.location,
+        clubLocation: (club as any).location,
         totalHoles: holes.length,
         totalPar: holes.reduce((sum, hole) => sum + (hole.par || 0), 0),
         totalYardage: holes.reduce((sum, hole) => sum + (hole.yardage || hole.yards || 0), 0),
@@ -127,9 +149,21 @@ export default function UKGolfCourseSelector({ onCourseDownloaded }: UKGolfCours
         localStorage.setItem('recent_golf_courses', JSON.stringify(recentCourses.slice(0, 10)));
       }
 
-      onCourseDownloaded(completeCourseData);
+      // Save to My Courses if required
+      if (action === 'save' || action === 'saveAndLoad') {
+        const raw = localStorage.getItem('my_golf_courses') || '[]';
+        const list = JSON.parse(raw) as any[];
+        const without = list.filter((c) => String(c.courseId) !== String(course.id));
+        without.unshift(completeCourseData);
+        localStorage.setItem('my_golf_courses', JSON.stringify(without.slice(0, 50)));
+        setMyCourses(without.slice(0, 50));
+      }
+
+      if (action === 'load' || action === 'saveAndLoad') {
+        onCourseDownloaded(completeCourseData);
+      }
     } catch (err: any) {
-      setError(`Failed to download course: ${err.message}`);
+      setError(err?.message || 'Failed to download course');
     } finally {
       setLoading(false);
     }
@@ -163,16 +197,10 @@ export default function UKGolfCourseSelector({ onCourseDownloaded }: UKGolfCours
         const data = await res.json();
         const items: Club[] = (data && (data.items || [])) as Club[];
         if (!items || items.length === 0) break;
-        const filtered = items.filter((c) =>
-          [c.name, c.postcode, c.address1, c.address2, c.address3]
-            .filter(Boolean)
-            .join(' ')
-            .toLowerCase()
-            .includes(term)
-        );
-        aggregated.push(...filtered);
+        aggregated.push(...items);
         if (aggregated.length >= 50) break; // enough to display
       }
+      // Keep aggregated list; we'll apply prefix-first filtering in render for best UX
       setClubs(aggregated);
     } catch (err: any) {
       setError(`Failed to search clubs: ${err.message}`);
@@ -183,30 +211,50 @@ export default function UKGolfCourseSelector({ onCourseDownloaded }: UKGolfCours
 
   useEffect(() => {
     fetchClubs();
+    // Check if holes endpoint exists; if not, disable UK loading
+    (async () => {
+      try {
+        const probe = await fetch(`${API_BASE_URL}/holes?limit=1`, { method: 'GET' });
+        if (!probe.ok) {
+          setHolesAvailable(false);
+        }
+      } catch {
+        setHolesAvailable(false);
+      }
+    })();
+    try {
+      const raw = localStorage.getItem('my_golf_courses') || '[]';
+      setMyCourses(JSON.parse(raw));
+    } catch {}
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
     <div className="max-w-4xl mx-auto p-6">
-      <h2 className="text-2xl font-bold text-green-800 mb-6">Select UK Golf Course</h2>
+      <h2 className="text-2xl font-bold text-green-800 mb-2">Select UK Golf Course</h2>
+      {!holesAvailable && (
+        <div className="mb-4 p-3 rounded-xl border-2 border-augusta-yellow text-augusta-yellow">
+          UK beta can list clubs/courses but cannot load holes (provider endpoint missing). Please use the Local tab for now.
+        </div>
+      )}
 
       <div className="mb-6">
         <div className="flex gap-2">
           <div className="relative flex-1">
-            <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+            <Search className="absolute left-3 top-3 h-4 w-4 text-augusta-yellow-dark" />
             <input
               type="text"
               placeholder="Search UK golf clubs..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
+              className="w-full pl-10 pr-4 py-3 rounded-2xl border-2 border-augusta-yellow bg-augusta-yellow text-green-900 placeholder:text-green-800 focus:ring-2 focus:ring-augusta-yellow-dark"
             />
           </div>
           <button
             onClick={handleSearch}
             disabled={loading}
-            className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400"
+            className="px-6 py-3 rounded-2xl border-2 border-augusta-yellow text-augusta-yellow hover:bg-augusta-yellow/10 disabled:opacity-50"
           >
             Search
           </button>
@@ -226,35 +274,77 @@ export default function UKGolfCourseSelector({ onCourseDownloaded }: UKGolfCours
         </div>
       )}
 
+      {/* My Courses pinned section */}
+      {myCourses.length > 0 && !selectedClub && (
+        <div className="mb-6">
+          <h3 className="text-lg font-semibold text-gray-800 mb-3">My Courses</h3>
+          <div className="grid gap-3">
+            {myCourses.map((saved) => (
+              <div key={String(saved.courseId)} className="p-4 border border-gray-200 rounded-lg flex items-center justify-between">
+                <div>
+                  <h4 className="font-semibold text-gray-800">{saved.courseName}</h4>
+                  <p className="text-sm text-gray-600">{saved.clubName}</p>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => onCourseDownloaded(saved)}
+                    className="px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+                  >
+                    Use
+                  </button>
+                  <button
+                    onClick={() => {
+                      const next = myCourses.filter((c) => String(c.courseId) !== String(saved.courseId));
+                      setMyCourses(next);
+                      localStorage.setItem('my_golf_courses', JSON.stringify(next));
+                    }}
+                    className="px-3 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
+                  >
+                    Remove
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {clubs.length > 0 && !selectedClub && (
         <div className="mb-6">
           {(() => {
-            const term = searchTerm.trim().toLowerCase();
-            const filtered = term
-              ? clubs.filter((c) => {
-                  const hay = [c.name, c.postcode, c.address1, c.address2, c.address3]
-                    .filter(Boolean)
-                    .join(' ')
-                    .toLowerCase();
-                  return hay.includes(term);
+            const normalize = (s: string) => s.toLowerCase().replace(/[.'’]/g, '').replace(/\s+/g, ' ').trim();
+            const termRaw = searchTerm.trim();
+            const term = normalize(termRaw);
+            let list = clubs;
+            if (term) {
+              const prefix = list
+                .filter((c) => normalize(c.name || '').startsWith(term))
+                .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+              const contains = list
+                .filter((c) => {
+                  const n = normalize(c.name || '');
+                  return !n.startsWith(term) && n.includes(term);
                 })
-              : clubs;
+                .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+              list = [...prefix, ...contains];
+            } else {
+              list = list.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+            }
+            const filteredByName = list;
             return (
               <>
-                <h3 className="text-lg font-semibold text-gray-800 mb-3">Found {filtered.length} Golf Clubs</h3>
+                <h3 className="text-lg font-semibold text-gray-800 mb-3">Found {filteredByName.length} Golf Clubs</h3>
                 <div className="grid gap-3 max-h-96 overflow-y-auto">
-                  {filtered.map((club) => (
+                  {filteredByName.map((club) => (
                     <div
                       key={String(club.id)}
                       onClick={() => handleClubSelect(club)}
-                      className="p-4 border border-gray-200 rounded-lg cursor-pointer hover:border-green-300 hover:bg-green-50 transition-colors"
+                      className="p-4 rounded-2xl cursor-pointer border-2 border-augusta-yellow bg-augusta-yellow/10 hover:bg-augusta-yellow/20 transition-colors"
                     >
-                      <h4 className="font-semibold text-gray-800">{club.name}</h4>
-                      {(
-                        club.postcode || club.address1 || club.address2 || club.address3
-                      ) && (
-                        <div className="flex items-center gap-1 text-gray-600 text-sm mt-1">
-                          <MapPin className="h-3 w-3" />
+                      <h4 className="font-semibold text-augusta-yellow">{club.name}</h4>
+                      {(club.postcode || club.address1 || club.address2 || club.address3) && (
+                        <div className="flex items-center gap-1 text-augusta-yellow-dark text-sm mt-1">
+                          <MapPin className="h-3 w-3 text-augusta-yellow-dark" />
                           <span>{[club.address1, club.address2, club.address3, club.postcode].filter(Boolean).join(', ')}</span>
                         </div>
                       )}
@@ -275,7 +365,7 @@ export default function UKGolfCourseSelector({ onCourseDownloaded }: UKGolfCours
                 setSelectedClub(null);
                 setCourses([]);
               }}
-              className="text-green-600 hover:text-green-700 text-sm"
+              className="text-augusta-yellow hover:text-augusta-yellow-dark text-sm"
             >
               ← Back to clubs
             </button>
@@ -285,28 +375,70 @@ export default function UKGolfCourseSelector({ onCourseDownloaded }: UKGolfCours
 
           <div className="grid gap-3">
             {courses.map((course) => (
-              <div key={String(course.id)} className="p-4 border border-gray-200 rounded-lg">
+              <div key={String(course.id)} className="p-4 rounded-2xl border-2 border-augusta-yellow bg-augusta-yellow/10">
                 <div className="flex justify-between items-start">
                   <div>
-                    <h4 className="font-semibold text-gray-800">{course.name}</h4>
-                    <div className="flex items-center gap-4 text-sm text-gray-600 mt-2">
+                    <h4 className="font-semibold text-augusta-yellow">{course.name}</h4>
+                    <div className="flex items-center gap-4 text-sm text-augusta-yellow-dark mt-2">
                       {course.holes && <span>{course.holes} holes</span>}
                       {course.par && <span>Par {course.par}</span>}
                     </div>
-                    {course.description && <p className="text-gray-600 text-sm mt-2">{course.description}</p>}
+                    {course.description && <p className="text-augusta-yellow-dark text-sm mt-2">{course.description}</p>}
                   </div>
 
                   <button
-                    onClick={() => downloadCourseData(selectedClub, course)}
-                    disabled={loading}
-                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 flex items-center gap-2"
+                    onClick={() => selectedClub && holesAvailable && setCourseToConfirm({ club: selectedClub, course })}
+                    disabled={loading || !holesAvailable}
+                    className="px-4 py-2 rounded-2xl border-2 border-augusta-yellow text-augusta-yellow hover:bg-augusta-yellow/10 disabled:opacity-50 flex items-center gap-2"
                   >
                     <Download className="h-4 w-4" />
-                    Select Course
+                    {holesAvailable ? 'Select Course' : 'Unavailable'}
                   </button>
                 </div>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* Confirm Course Selection Panel */}
+      {courseToConfirm && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="rounded-2xl shadow-lg w-[90%] max-w-md p-6 border-2 border-augusta-yellow bg-augusta-yellow/10">
+            <h3 className="text-lg font-semibold text-augusta-yellow mb-2">Confirm course selection</h3>
+            <div className="text-sm text-augusta-yellow-dark space-y-1 mb-4">
+              <p><span className="font-medium">Club:</span> {courseToConfirm.club.name}</p>
+              <p><span className="font-medium">Course:</span> {courseToConfirm.course.name}</p>
+            </div>
+            <div className="flex gap-2 justify-between">
+              <button
+                onClick={() => {
+                  const { club, course } = courseToConfirm;
+                  downloadCourseData(club, course, 'save');
+                }}
+                className="px-4 py-2 rounded-2xl border-2 border-augusta-yellow text-augusta-yellow hover:bg-augusta-yellow/10"
+                disabled={loading}
+              >
+                Add to My Courses
+              </button>
+              <button
+                onClick={() => setCourseToConfirm(null)}
+                className="px-4 py-2 rounded-2xl border-2 border-augusta-yellow text-augusta-yellow hover:bg-augusta-yellow/10"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  const { club, course } = courseToConfirm;
+                  setCourseToConfirm(null);
+                  downloadCourseData(club, course, 'saveAndLoad');
+                }}
+                className="px-4 py-2 rounded-2xl border-2 border-augusta-yellow text-augusta-yellow hover:bg-augusta-yellow/10 disabled:opacity-50"
+                disabled={loading}
+              >
+                Confirm & Load
+              </button>
+            </div>
           </div>
         </div>
       )}
